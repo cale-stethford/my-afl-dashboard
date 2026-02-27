@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# --- PAGE SETUP ---
+# --- SETTINGS ---
 st.set_page_config(page_title="AFL Pro Dashboard", layout="wide")
 
 AFL_TEAM_COLORS = {
@@ -20,44 +20,48 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload AFL_Data.xlsx", type=["xlsx"])
 
 if uploaded_file:
-    # Read both sheets
     all_sheets = pd.read_excel(uploaded_file, sheet_name=None)
     matches = all_sheets.get('Matches')
     player_data = all_sheets.get('Player_Stats')
 
     tab1, tab2, tab3 = st.tabs(["Match Results", "The Ladder", "Stat Leaders"])
 
-    # --- TAB 1: MATCH RESULTS ---
+    # --- TAB 1: DYNAMIC MATCH RESULTS ---
     with tab1:
         st.header("Latest Game Results")
-        # (Filtered views and scorecards go here - see previous code version)
-        st.dataframe(matches, use_container_width=True)
+        # Automatically detect any numeric columns you added (like 'Inside 50s' or 'Free Kicks')
+        extra_match_cols = [c for c in matches.columns if c not in ['Season', 'Round', 'Date', 'Home_Team', 'Away_Team', 'Home_Score', 'Away_Score', 'Venue']]
+        
+        for _, row in matches.iterrows():
+            with st.expander(f"{row['Home_Team']} {row['Home_Score']} vs {row['Away_Score']} {row['Away_Team']}"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Venue:** {row['Venue']}")
+                    st.write(f"**Date:** {row['Date']}")
+                with col2:
+                    # This loop displays any new columns you added automatically!
+                    for col in extra_match_cols:
+                        st.write(f"**{col}:** {row[col]}")
 
-    # --- TAB 2: LIVE LADDER CALCULATION ---
+    # --- TAB 2: LADDER ---
     with tab2:
         st.header("Premiership Ladder")
-        
-        # Logic to build ladder from match scores
         home = matches[['Home_Team', 'Home_Score', 'Away_Score']].rename(columns={'Home_Team':'Team', 'Home_Score':'For', 'Away_Score':'Against'})
         away = matches[['Away_Team', 'Away_Score', 'Home_Score']].rename(columns={'Away_Team':'Team', 'Away_Score':'For', 'Home_Score':'Against'})
         ladder_df = pd.concat([home, away])
-        
-        # Group by Team
         ladder = ladder_df.groupby('Team').agg({'For':'sum', 'Against':'sum'}).reset_index()
-        
-        # Calculate Wins/Draws (approximate for this sample)
-        # Note: In a full app, you'd compare row-by-row for W/L/D
         ladder['Percentage'] = (ladder['For'] / ladder['Against'] * 100).round(2)
-        ladder = ladder.sort_values(by=['For', 'Percentage'], ascending=False).reset_index(drop=True)
-        ladder.index += 1 # Rank 1 to 18
-        
-        st.table(ladder)
+        st.table(ladder.sort_values(by=['For', 'Percentage'], ascending=False).reset_index(drop=True))
 
-    # --- TAB 3: STAT LEADERS ---
+    # --- TAB 3: DYNAMIC STAT LEADERS ---
     with tab3:
         if player_data is not None:
+            # Identify all numeric columns for the dropdown
+            available_stats = player_data.select_dtypes(include=['number']).columns.tolist()
+            available_stats = [s for s in available_stats if s not in ['Season', 'Round']]
+            
             st.header("League Leaders")
-            stat_to_view = st.selectbox("Select Statistic", ["Goals", "Disposals", "Tackles", "Clearances"])
+            stat_to_view = st.selectbox("Select Statistic to Rank", available_stats)
             
             top_players = player_data.groupby(['Player', 'Team'])[stat_to_view].sum().sort_values(ascending=False).head(10).reset_index()
             
@@ -66,7 +70,6 @@ if uploaded_file:
                          title=f"Top 10: Total {stat_to_view}")
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Please add a 'Player_Stats' sheet to your Excel file to see individual leaders.")
-
+            st.warning("Please add a 'Player_Stats' sheet to your Excel file.")
 else:
-    st.info("Please upload an Excel file with 'Matches' and 'Player_Stats' sheets.")
+    st.info("Awaiting Excel upload...")
